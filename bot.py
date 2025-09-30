@@ -1,13 +1,14 @@
 import os
 import time
+import sys
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import Update
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
-# جلب التوكن من متغيرات البيئة
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# التحقق من وجود التوكن
+BOT_TOKEN = "8152510678:AAH7mFrO08lhj0jBAN6WV8l2-5xMWPDqxcg"  # التوكن الخاص بك
 CHROMEDRIVER_PATH = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
 
 async def play_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
