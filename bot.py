@@ -26,7 +26,22 @@ async def play_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     driver.quit()
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("video", play_video))
-    print("🚀 Bot started...")
-    app.run_polling()
+    try:
+        print("🚀 Starting bot...")
+        app = (
+            ApplicationBuilder()
+            .token(BOT_TOKEN)
+            .arbitrary_callback_data(True)
+            .build()
+        )
+        
+        # إضافة معالج الأوامر
+        app.add_handler(CommandHandler("video", play_video))
+        
+        # بدء البوت
+        print("✅ Bot is running... Press Ctrl+C to stop")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise e
