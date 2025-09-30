@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+venv/
+env/
+
+# Chrome
+*.log
+chromedriver.log
+
+# VS Code
+.vscode/
+
+# System
+.DS_Store
+Thumbs.db

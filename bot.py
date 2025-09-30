@@ -1,6 +1,8 @@
 import logging
 import asyncio
+import os
 from datetime import datetime
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from selenium import webdriver
@@ -10,6 +12,18 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+
+# تحميل المتغيرات من ملف .env
+load_dotenv()
+
+# استيراد المتغيرات
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 300))
+CHROME_HEADLESS = os.getenv('CHROME_HEADLESS', 'True').lower() == 'true'
+CHROME_WIDTH = int(os.getenv('CHROME_WIDTH', 1920))
+CHROME_HEIGHT = int(os.getenv('CHROME_HEIGHT', 1080))
+YOUTUBE_URL = os.getenv('YOUTUBE_URL', 'https://www.youtube.com')
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 # Enable logging
 logging.basicConfig(
@@ -27,39 +41,48 @@ class YouTubeChecker:
     def __init__(self):
         self.setup_driver()
         self.is_running = False
+        self.notification_chat_id = None
 
     def setup_driver(self):
         chrome_options = Options()
-        chrome_options.add_argument('--headless')  # تشغيل في وضع headless للسيرفر
+        if CHROME_HEADLESS:
+            chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument(f'--window-size={CHROME_WIDTH},{CHROME_HEIGHT}')
+        
         service = Service()
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
     async def check_youtube_status(self, context: ContextTypes.DEFAULT_TYPE):
+        if not self.notification_chat_id:
+            logger.warning("No notification chat ID set")
+            return
+
         try:
-            self.driver.get('https://www.youtube.com')
-            # انتظار ظهور عنصر معين للتأكد من تحميل الصفحة
+            self.driver.get(YOUTUBE_URL)
             wait = WebDriverWait(self.driver, 10)
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "ytd-app")))
             
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             message = f"✅ يوتيوب يعمل بشكل طبيعي\nآخر فحص: {current_time}"
             
-            if NOTIFICATION_CHAT_ID:
-                await context.bot.send_message(
-                    chat_id=NOTIFICATION_CHAT_ID,
-                    text=message
-                )
+            await context.bot.send_message(
+                chat_id=self.notification_chat_id,
+                text=message
+            )
+            
+            if DEBUG:
+                logger.info(f"Successfully checked YouTube at {current_time}")
                 
         except (TimeoutException, WebDriverException) as e:
             error_message = f"⚠️ مشكلة في الوصول إلى يوتيوب\nالخطأ: {str(e)}"
             logger.error(error_message)
-            if NOTIFICATION_CHAT_ID:
-                await context.bot.send_message(
-                    chat_id=NOTIFICATION_CHAT_ID,
-                    text=error_message
-                )
+            
+            await context.bot.send_message(
+                chat_id=self.notification_chat_id,
+                text=error_message
+            )
 
     def cleanup(self):
         if hasattr(self, 'driver'):
@@ -69,30 +92,44 @@ class YouTubeChecker:
 youtube_checker = YouTubeChecker()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global NOTIFICATION_CHAT_ID
-    NOTIFICATION_CHAT_ID = update.effective_chat.id
+    global youtube_checker
     
-    await update.message.reply_text(
-        'مرحباً! سأقوم بإرسال إشعارات عن حالة يوتيوب.\n'
-        'استخدم /start_monitoring لبدء المراقبة\n'
-        'استخدم /stop_monitoring لإيقاف المراقبة'
-    )
+    if update.effective_chat:
+        youtube_checker.notification_chat_id = update.effective_chat.id
+        
+        await update.message.reply_text(
+            'مرحباً! سأقوم بإرسال إشعارات عن حالة يوتيوب.\n'
+            'استخدم /start_monitoring لبدء المراقبة\n'
+            'استخدم /stop_monitoring لإيقاف المراقبة'
+        )
+    else:
+        logger.error("No effective chat available")
 
 async def start_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global youtube_checker
     
+    if not youtube_checker.notification_chat_id:
+        await update.message.reply_text('الرجاء استخدام الأمر /start أولاً')
+        return
+    
     if not youtube_checker.is_running:
         youtube_checker.is_running = True
-        await update.message.reply_text('بدأت مراقبة يوتيوب. سأرسل لك إشعارات كل 5 دقائق.')
+        await update.message.reply_text(
+            f'بدأت مراقبة يوتيوب. سأرسل لك إشعارات كل {CHECK_INTERVAL//60} دقائق.'
+        )
         
         while youtube_checker.is_running:
             await youtube_checker.check_youtube_status(context)
-            await asyncio.sleep(300)  # انتظار 5 دقائق
+            await asyncio.sleep(CHECK_INTERVAL)
     else:
         await update.message.reply_text('المراقبة قيد التشغيل بالفعل!')
 
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global youtube_checker
+    
+    if not youtube_checker.notification_chat_id:
+        await update.message.reply_text('الرجاء استخدام الأمر /start أولاً')
+        return
     
     if youtube_checker.is_running:
         youtube_checker.is_running = False
@@ -101,11 +138,12 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text('المراقبة متوقفة بالفعل!')
 
 def main():
-    # استخدام التوكن مباشرة
-    token = "8152510678:AAH7mFrO08lhj0jBAN6WV8l2-5xMWPDqxcg"
-    
+    if not BOT_TOKEN:
+        logger.error("No BOT_TOKEN found in .env file!")
+        return
+        
     # إنشاء التطبيق
-    application = Application.builder().token(token).build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # إضافة الأوامر
     application.add_handler(CommandHandler("start", start))
@@ -114,6 +152,12 @@ def main():
 
     # تشغيل البوت
     try:
+        logger.info("Starting bot...")
+        if DEBUG:
+            logger.info(f"Debug mode: ON")
+            logger.info(f"Chrome headless mode: {CHROME_HEADLESS}")
+            logger.info(f"Check interval: {CHECK_INTERVAL} seconds")
+        
         application.run_polling(allowed_updates=Update.ALL_TYPES)
     finally:
         # تنظيف الموارد عند إيقاف البوت
